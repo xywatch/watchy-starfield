@@ -1,9 +1,16 @@
+# About
+
+This project is forked from https://github.com/Prokuon/watchy-starfield, converted to `PlatformIO` development, supports Watchy v2 and v3, and adds weather functionality.
+
+How to develop: move platformio-dev.ini to platformio.ini and open the folder with `PlatformIO`
+
 # watchy-starfield
 
 starfield watchface for Watchy
 * step count
 * sunrise/sunset time
 * moonphase
+* weather
 
 ![picture](/assets/img.png)
 

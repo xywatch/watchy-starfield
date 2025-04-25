@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "bma423.h": "c",
+        "arduino.h": "c"
+    }
+}
