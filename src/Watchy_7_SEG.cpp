@@ -16,9 +16,6 @@ RTC_DATA_ATTR bool HOUR_SET = true;
 // 必须要加上RTC_DATA_ATTR
 RTC_DATA_ATTR bool WEATHER_SHOWED = false;
 
-RTC_DATA_ATTR weatherData2 currentWeather2; // 名称不能和currentWeather一样, 不然打包出错, 编译没问题
-RTC_DATA_ATTR uint16_t lastFetchWeatherMinute = 0;
-
 moonPhaser moonP;
 
 void Watchy7SEG::handleButtonPress()
@@ -923,159 +920,6 @@ void Watchy7SEG::drawSun()
 //   showMenu(menuIndex, false);
 // }
 
-weatherData2 Watchy7SEG::getWeatherData2()
-{
-  return _getWeatherData2(settings.cityID, settings.lat, settings.lon,
-                          settings.weatherUnit, settings.weatherLang, settings.weatherURL,
-                          settings.weatherAPIKey, settings.weatherUpdateInterval);
-}
-
-/*
-{
-  "coord": {
-    "lon": 121.4581,
-    "lat": 31.2222
-  },
-  "weather": [
-    {
-      "id": 803, // weatherConditionCode
-      "main": "Clouds",
-      "description": "broken clouds",
-      "icon": "04d"
-    }
-  ],
-  "base": "stations",
-  "main": {
-    "temp": 13.92, // temperature
-    "feels_like": 13.25,
-    "temp_min": 13.92,
-    "temp_max": 13.92,
-    "pressure": 1023,
-    "humidity": 72,
-    "sea_level": 1023,
-    "grnd_level": 1022
-  },
-  "visibility": 10000,
-  "wind": {
-    "speed": 5,
-    "deg": 90
-  },
-  "clouds": {
-    "all": 75
-  },
-  "dt": 1737602065,
-  "sys": {
-    "type": 1,
-    "id": 9659,
-    "country": "CN",
-    "sunrise": 1737586265,
-    "sunset": 1737624028
-  },
-  "timezone": 28800,
-  "id": 1796236,
-  "name": "Shanghai",
-  "cod": 200
-}
-*/
-weatherData2 Watchy7SEG::_getWeatherData2(String cityID, String lat, String lon, String units, String lang,
-                                          String url, String apiKey,
-                                          uint8_t updateInterval)
-{
-  Serial.println("_getWeatherData2");
-  currentWeather2.isMetric = units == String("metric");
-
-  RTC.read(currentTime);
-  uint16_t curMinute = currentTime.Day * 24 * 60 + currentTime.Hour * 60 + currentTime.Minute;
-  Serial.println(curMinute);
-  Serial.println(lastFetchWeatherMinute);
-  Serial.println(curMinute - lastFetchWeatherMinute);
-  if (curMinute - lastFetchWeatherMinute >= updateInterval)
-  { // only update if WEATHER_UPDATE_INTERVAL has elapsed i.e. 30 minutes
-    if (connectWiFi())
-    {
-      Serial.println("WIFI connected");
-      HTTPClient http;              // Use Weather API for live data if WiFi is connected
-      http.setConnectTimeout(3000); // 3 second max timeout
-      String weatherQueryURL = url;
-      if (cityID != "")
-      {
-        weatherQueryURL.replace("{cityID}", cityID);
-      }
-      else
-      {
-        weatherQueryURL.replace("{lat}", lat);
-        weatherQueryURL.replace("{lon}", lon);
-      }
-      weatherQueryURL.replace("{units}", units);
-      weatherQueryURL.replace("{lang}", lang);
-      weatherQueryURL.replace("{apiKey}", apiKey);
-      http.begin(weatherQueryURL.c_str());
-      int httpResponseCode = http.GET();
-      if (httpResponseCode == 200)
-      {
-        String payload = http.getString();
-        JSONVar responseObject = JSON.parse(payload);
-        currentWeather2.external = true;
-
-        // 只保留一位小数
-        currentWeather2.temperature = floor((double_t)responseObject["main"]["temp"] * 10) / 10;
-        currentWeather2.minTemp = floor((double_t)responseObject["main"]["temp_min"] * 10) / 10;
-        currentWeather2.maxTemp = floor((double_t)responseObject["main"]["temp_max"] * 10) / 10;
-
-        currentWeather2.weatherConditionCode = int(responseObject["weather"][0]["id"]);
-
-        const char *weatherDescription = responseObject["weather"][0]["main"]; // JSON.stringify()会把字符串加一对引号
-        strncpy(currentWeather2.weatherDescription, weatherDescription, sizeof(currentWeather2.weatherDescription) - 1);
-        // strncpy(dest, src, sizeof(dest) - 1);
-        currentWeather2.weatherDescription[sizeof(currentWeather2.weatherDescription) - 1] = '\0';
-
-        const char *city = responseObject["name"];
-        strncpy(currentWeather2.city, city, sizeof(currentWeather2.city) - 1);
-        currentWeather2.city[sizeof(currentWeather2.city) - 1] = '\0';
-
-        int gmtOffset = int(responseObject["timezone"]);
-
-        // 把时区也加上, 不然时间不对
-        breakTime((time_t)(int)responseObject["sys"]["sunrise"] + gmtOffset, currentWeather2.sunrise);
-        breakTime((time_t)(int)responseObject["sys"]["sunset"] + gmtOffset, currentWeather2.sunset);
-
-        lastFetchWeatherMinute = curMinute;
-
-        // sync NTP during weather API call and use timezone of lat & lon
-        syncNTP(gmtOffset);
-        Serial.println("Get Weather from net ok");
-        Serial.println(payload);
-      }
-      else
-      {
-        // http error
-        Serial.println("Get Weather from net error");
-      }
-      http.end();
-      // turn off radios
-      WiFi.mode(WIFI_OFF);
-      btStop(); // 关闭蓝牙
-    }
-    else
-    { // No WiFi, use internal temperature sensor
-      Serial.println("No WiFi, use internal temperature sensor");
-      uint8_t temperature = sensor.readTemperature(); // celsius
-      if (!currentWeather2.isMetric)
-      {
-        temperature = temperature * 9. / 5. + 32.; // fahrenheit
-      }
-      currentWeather2.temperature = temperature;
-      currentWeather2.weatherConditionCode = 800;
-      currentWeather2.external = false;
-    }
-  }
-  else
-  {
-    Serial.println("Get weather from cache");
-  }
-  return currentWeather2;
-}
-
 void Watchy7SEG::showWeather()
 {
   display.setFullWindow();
@@ -1095,7 +939,7 @@ void Watchy7SEG::showWeather()
 
 void Watchy7SEG::drawWeather()
 {
-  weatherData2 currentWeather2 = getWeatherData2();
+  weatherData currentWeather = getWeatherData();
 
   display.setFullWindow();
   display.fillScreen(DARKMODE ? GxEPD_BLACK : GxEPD_WHITE);
@@ -1103,11 +947,11 @@ void Watchy7SEG::drawWeather()
   RTC.read(currentTime);
   uint16_t curMinute = currentTime.Day * 24 * 60 + currentTime.Hour * 60 + currentTime.Minute;
  
-  if (currentWeather2.city[0] == 0 || curMinute - lastFetchWeatherMinute > settings.weatherUpdateInterval + 1) {
+  if (currentWeather.city[0] == 0 || curMinute - currentWeather.lastFetchWeatherMinute > settings.weatherUpdateInterval + 1) {
     display.setCursor(0, 20);
     display.println("Sync Error");
 
-    showSensorWeather();
+    showSensorWeather(&currentWeather);
 
     display.display(true); // partial refresh
     return;
@@ -1122,48 +966,48 @@ void Watchy7SEG::drawWeather()
   // display.setTextColor(DARKMODE ? GxEPD_WHITE : GxEPD_BLACK);
   display.setCursor(0, 20);
   display.print("City:");
-  display.println(currentWeather2.city);
+  display.println(currentWeather.city);
   display.print("Weather:");
-  display.println(currentWeather2.weatherDescription);
+  display.println(currentWeather.weatherDescription);
 
   char numBuffer1[10];
   /*
   display.print("Temp:");
-  sprintf(numBuffer1, "%.1f", currentWeather2.minTemp);
+  sprintf(numBuffer1, "%.1f", currentWeather.minTemp);
   display.print(numBuffer1);
   display.print("-");
   memset(numBuffer1, 0, sizeof(numBuffer1));
-  sprintf(numBuffer1, "%.1f", currentWeather2.maxTemp);
+  sprintf(numBuffer1, "%.1f", currentWeather.maxTemp);
   display.println(numBuffer1);
   */
 
   // Serial.print("Weather: ");
-  // Serial.println(currentWeather2.weatherDescription);
+  // Serial.println(currentWeather.weatherDescription);
 
-  tmElements_t sunrise = currentWeather2.sunrise;
+  tmElements_t sunrise = currentWeather.sunrise;
   display.print("Sunrise:");
   display.print(sunrise.Hour);
   display.print(":");
   display.println(sunrise.Minute);
 
-  tmElements_t sunset = currentWeather2.sunset;
+  tmElements_t sunset = currentWeather.sunset;
   display.print("Sunset:");
   display.print(sunset.Hour);
   display.print(":");
   display.println(sunset.Minute);
 
-  showSensorWeather();
+  showSensorWeather(&currentWeather);
 
   // display.print("Updated:");
-  if (curMinute - lastFetchWeatherMinute <= 1) {
+  if (curMinute - currentWeather.lastFetchWeatherMinute <= 1) {
     display.println("Just now");
   } else {
-    display.print(curMinute - lastFetchWeatherMinute);
+    display.print(curMinute - currentWeather.lastFetchWeatherMinute);
     display.println(" Mins ago");
   }
 
   memset(numBuffer1, 0, sizeof(numBuffer1));
-  sprintf(numBuffer1, "%.1f", currentWeather2.temperature);
+  sprintf(numBuffer1, "%.1f", currentWeather.temperature);
   String temperature = String(numBuffer1); // 13.92
 
   int16_t x1, y1;
@@ -1192,10 +1036,10 @@ void Watchy7SEG::drawWeather()
   // 温度数字
   display.println(temperature);
   // °C
-  display.drawBitmap(165, 110 + 12, currentWeather2.isMetric ? celsius : fahrenheit, 26, 20, DARKMODE ? GxEPD_WHITE : GxEPD_BLACK);
+  display.drawBitmap(165, 110 + 12, currentWeather.isMetric ? celsius : fahrenheit, 26, 20, DARKMODE ? GxEPD_WHITE : GxEPD_BLACK);
 
   // 天气图标
-  drawWeatherIcon(currentWeather2.weatherConditionCode);
+  drawWeatherIcon(currentWeather.weatherConditionCode);
 
   display.display(true); // partial refresh
 }
@@ -1253,12 +1097,13 @@ void Watchy7SEG::drawWeatherIcon (int16_t weatherConditionCode) {
 }
 
 // sensor temp
-void Watchy7SEG::showSensorWeather () {
-  // 没有焊接, 暂时不要
+void Watchy7SEG::showSensorWeather (weatherData *currentWeather) {
+  #ifdef ARDUINO_ESP32S3_DEV
   return;
+  #endif
 
   uint8_t sensorTemperature = sensor.readTemperature(); // celsius
-  if (!currentWeather2.isMetric)
+  if (!currentWeather->isMetric)
   {
     sensorTemperature = sensorTemperature * 9. / 5. + 32.; // fahrenheit
   }
